@@ -11,13 +11,28 @@ ufw allow "Nginx HTTP"
 ufw --force enable
 systemctl enable fail2ban
 
-echo "[3/5] Public key linkten indiriliyor..."
-SSH_DIR="/root/.ssh"
-mkdir -p "$SSH_DIR"
-chmod 700 "$SSH_DIR"
+echo "[3/5] Public key indiriliyor ve tüm kullanıcılara uygulanıyor..."
+PUBKEY_URL="https://raw.githubusercontent.com/ekremarslan/debian/refs/heads/main/ekremarslan.pub"
+TEMP_KEY="/tmp/ekremarslan.pub"
+curl -Ls "$PUBKEY_URL" -o "$TEMP_KEY"
 
-wget -qO "$SSH_DIR/authorized_keys" https://raw.githubusercontent.com/ekremarslan/debian/refs/heads/main/ekremarslan.pub
-chmod 600 "$SSH_DIR/authorized_keys"
+for dir in /home/* /root; do
+    [ -d "$dir" ] || continue
+
+    USERNAME=$(basename "$dir")
+    SSH_DIR="$dir/.ssh"
+    AUTH_KEYS="$SSH_DIR/authorized_keys"
+
+    echo "→ $USERNAME kullanıcısına ekleniyor..."
+    mkdir -p "$SSH_DIR"
+    chmod 700 "$SSH_DIR"
+    touch "$AUTH_KEYS"
+    chmod 600 "$AUTH_KEYS"
+    grep -qxFf "$TEMP_KEY" "$AUTH_KEYS" || cat "$TEMP_KEY" >> "$AUTH_KEYS"
+    chown -R "$USERNAME:$USERNAME" "$SSH_DIR" 2>/dev/null || true
+done
+
+rm -f "$TEMP_KEY"
 
 echo "[4/5] SSH yapılandırması güvenli hale getiriliyor..."
 sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
@@ -26,12 +41,6 @@ sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_con
 systemctl restart ssh
 
 echo "[5/5] Kurulum tamamlandı."
-echo "Sadece aşağıdaki public key ile bağlantı kabul edilecek:"
-echo "--------------------------------------"
-cat "$SSH_DIR/authorized_keys"
-echo "--------------------------------------"
-
 echo "Sunucu IP adresleri:"
 hostname -I
-
-echo "✅ Güvenli SSH erişimi aktif. Şifreli bağlantı kapalı."
+echo "✅ Tüm kullanıcılar için güvenli SSH erişimi aktif. Şifreli bağlantı kapalı."

@@ -1,46 +1,60 @@
 #!/bin/bash
 set -e
 
-echo "[1/5] Sistem güncelleniyor ve gerekli paketler kuruluyor..."
+# Varsayılan değer
+SSH_PORT=2222
+PUBKEY_URL="https://raw.githubusercontent.com/ekremarslan/debian/refs/heads/main/ekremarslan.pub"
+
+# Argümanlardan özel port seçimi
+while [[ "$#" -gt 0 ]]; do
+  case $1 in
+    --port) SSH_PORT="$2"; shift ;;
+    *) echo "Bilinmeyen parametre: $1"; exit 1 ;;
+  esac
+  shift
+done
+
+echo "[1/6] Sistem güncelleniyor ve gerekli paketler kuruluyor..."
 apt update && apt upgrade -y
 apt install -y sudo curl wget vim gnupg ufw fail2ban openssh-server nginx
 
-echo "[2/5] Güvenlik duvarı yapılandırılıyor..."
-ufw allow OpenSSH
+echo "[2/6] Güvenlik duvarı yapılandırılıyor (SSH port: $SSH_PORT)..."
+ufw allow "${SSH_PORT}/tcp"
 ufw allow "Nginx HTTP"
 ufw --force enable
 systemctl enable fail2ban
 
-echo "[3/5] Public key indiriliyor ve tüm kullanıcılara uygulanıyor..."
-PUBKEY_URL="https://raw.githubusercontent.com/ekremarslan/debian/refs/heads/main/ekremarslan.pub"
+echo "[3/6] Public key indiriliyor ve tüm kullanıcılara uygulanıyor..."
 TEMP_KEY="/tmp/ekremarslan.pub"
 curl -Ls "$PUBKEY_URL" -o "$TEMP_KEY"
 
 for dir in /home/* /root; do
-    [ -d "$dir" ] || continue
+  [ -d "$dir" ] || continue
+  USERNAME=$(basename "$dir")
+  SSH_DIR="$dir/.ssh"
+  AUTH_KEYS="$SSH_DIR/authorized_keys"
 
-    USERNAME=$(basename "$dir")
-    SSH_DIR="$dir/.ssh"
-    AUTH_KEYS="$SSH_DIR/authorized_keys"
-
-    echo "→ $USERNAME kullanıcısına ekleniyor..."
-    mkdir -p "$SSH_DIR"
-    chmod 700 "$SSH_DIR"
-    touch "$AUTH_KEYS"
-    chmod 600 "$AUTH_KEYS"
-    grep -qxFf "$TEMP_KEY" "$AUTH_KEYS" || cat "$TEMP_KEY" >> "$AUTH_KEYS"
-    chown -R "$USERNAME:$USERNAME" "$SSH_DIR" 2>/dev/null || true
+  echo "→ $USERNAME kullanıcısına ekleniyor..."
+  mkdir -p "$SSH_DIR"
+  chmod 700 "$SSH_DIR"
+  touch "$AUTH_KEYS"
+  chmod 600 "$AUTH_KEYS"
+  grep -qxFf "$TEMP_KEY" "$AUTH_KEYS" || cat "$TEMP_KEY" >> "$AUTH_KEYS"
+  chown -R "$USERNAME:$USERNAME" "$SSH_DIR" 2>/dev/null || true
 done
 
 rm -f "$TEMP_KEY"
 
-echo "[4/5] SSH yapılandırması güvenli hale getiriliyor..."
+echo "[4/6] SSH yapılandırması güvenli hale getiriliyor..."
+grep -q "^Port" /etc/ssh/sshd_config && sed -i "s/^Port .*/Port $SSH_PORT/" /etc/ssh/sshd_config || echo "Port $SSH_PORT" >> /etc/ssh/sshd_config
 sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
 sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
 sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+
+echo "[5/6] SSH servisi yeniden başlatılıyor..."
 systemctl restart ssh
 
-echo "[5/5] Kurulum tamamlandı."
+echo "[6/6] Kurulum tamamlandı."
 echo "Sunucu IP adresleri:"
 hostname -I
-echo "✅ Tüm kullanıcılar için güvenli SSH erişimi aktif. Şifreli bağlantı kapalı."
+echo "✅ SSH portu: $SSH_PORT | Şifreli bağlantı kapalı | Yalnızca public key ile giriş aktif."

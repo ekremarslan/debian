@@ -16,7 +16,7 @@ SSH_DIR="/root/.ssh"
 mkdir -p "$SSH_DIR"
 chmod 700 "$SSH_DIR"
 
-wget -qO "$SSH_DIR/authorized_keys" https://is.gd/Rupf9m
+wget -qO "$SSH_DIR/authorized_keys" https://is.gd/YZuKGH
 chmod 600 "$SSH_DIR/authorized_keys"
 
 echo "[4/5] SSH yapılandırması güvenli hale getiriliyor..."

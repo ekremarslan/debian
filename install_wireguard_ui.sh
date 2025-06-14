@@ -10,7 +10,7 @@ chmod 644 /etc/wireguard/wg0.conf
 mkdir -p /opt/wireguard-ui
 cd /opt/wireguard-ui
 
-cat > docker-compose.yml <<EOF
+cat > docker compose.yml <<EOF
 version: '3'
 services:
   wireguard-ui:
@@ -26,7 +26,7 @@ services:
       - WGUI_ENDPOINT_ADDRESS=192.168.10.24:51820
 EOF
 
-docker-compose up -d
+docker compose up -d
 
 mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
 

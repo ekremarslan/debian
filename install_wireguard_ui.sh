@@ -1,6 +1,18 @@
 #!/bin/bash
 set -e
 
+# Docker kurulumu (eğer yoksa)
+if ! command -v docker >/dev/null 2>&1; then
+    echo -e "\n📦 Docker kurulumu yapılıyor..."
+    apt update -y
+    apt install -y docker.io
+    systemctl enable docker
+    systemctl start docker
+else
+    echo -e "\n✅ Docker zaten kurulu."
+fi
+
+
 echo -e "\n📂 wireguard-ui kurulumu başlatılıyor..."
 mkdir -p /etc/wireguard
 echo "[Interface]" > /etc/wireguard/wg0.conf

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Varsayılan değer
+# Varsayılan ayarlar
 SSH_PORT=2222
 PUBKEY_URL="https://raw.githubusercontent.com/ekremarslan/debian/refs/heads/main/ekremarslan.pub"
 
@@ -50,6 +50,7 @@ grep -q "^Port" /etc/ssh/sshd_config && sed -i "s/^Port .*/Port $SSH_PORT/" /etc
 sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
 sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
 sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+sed -i 's/^#*X11Forwarding.*/X11Forwarding no/' /etc/ssh/sshd_config
 
 echo "[5/6] SSH servisi yeniden başlatılıyor..."
 systemctl restart ssh
@@ -57,4 +58,4 @@ systemctl restart ssh
 echo "[6/6] Kurulum tamamlandı."
 echo "Sunucu IP adresleri:"
 hostname -I
-echo "✅ SSH portu: $SSH_PORT | Şifreli bağlantı kapalı | Yalnızca public key ile giriş aktif."
+echo "✅ SSH portu: $SSH_PORT | Şifreli giriş kapalı | X11 kapalı | Yalnızca key ile giriş aktif."

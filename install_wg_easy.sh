@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Türkçe karakter desteği (UTF-8)
+export LANG="tr_TR.UTF-8"
+
 # === Otomatik kendine çalıştırılabilir izin ver (eğer dosya olarak çalıştırıldıysa) ===
 SCRIPT_PATH=$(readlink -f "$0")
 if [ -f "$SCRIPT_PATH" ]; then
@@ -18,7 +21,7 @@ echo -e "\n📁 [2/6] /opt/wg-easy dizini oluşturuluyor..."
 mkdir -p /opt/wg-easy
 cd /opt/wg-easy
 
-echo -e "\n📄 [3/6] docker-compose.yml yazılıyor..."
+echo -e "\n📄 [3/6] docker-compose.yml dosyası yazılıyor..."
 cat > docker-compose.yml <<EOF
 version: "3.8"
 services:
@@ -41,7 +44,7 @@ services:
     restart: unless-stopped
 EOF
 
-echo -e "\n🚀 [4/6] WireGuard Web UI başlatılıyor..."
+echo -e "\n🚀 [4/6] WireGuard Web Arayüzü (wg-easy) başlatılıyor..."
 docker-compose up -d
 
 echo -e "\n🌐 [5/6] Nginx yapılandırması ekleniyor..."
@@ -61,9 +64,9 @@ EOF
 ln -sf /etc/nginx/sites-available/wg-ui /etc/nginx/sites-enabled/wg-ui
 nginx -t && systemctl reload nginx
 
-echo -e "\n✅ [6/6] Kurulum tamamlandı!"
-echo -e "\n🔑 Web Arayüz Şifresi: admin123"
-echo -e "🌍 Giriş Adresi: http://vpn.local"
-echo -e "📌 Not: Host bilgisayarınızda /etc/hosts dosyanıza şu satırı ekleyin:"
-echo -e "    192.168.10.24    vpn.local"
-echo -e ""
+echo -e "\n✅ [6/6] Kurulum başarıyla tamamlandı!"
+
+echo -e "\n🔑 Web Arayüz Giriş Şifresi: \e[1;32madmin123\e[0m"
+echo -e "🌍 Giriş Adresi: \e[1;34mhttp://vpn.local\e[0m"
+echo -e "📌 Not: Kendi bilgisayarınızda /etc/hosts dosyasına şu satırı ekleyin:"
+echo -e "    \e[1;33m192.168.10.24    vpn.local\e[0m\n"

@@ -12,7 +12,6 @@ else
     echo -e "\n✅ Docker zaten kurulu."
 fi
 
-
 echo -e "\n📂 wireguard-ui kurulumu başlatılıyor..."
 mkdir -p /etc/wireguard
 echo "[Interface]" > /etc/wireguard/wg0.conf
@@ -22,7 +21,7 @@ chmod 644 /etc/wireguard/wg0.conf
 mkdir -p /opt/wireguard-ui
 cd /opt/wireguard-ui
 
-cat > docker compose.yml <<EOF
+cat <<EOF > docker-compose.yml
 version: '3'
 services:
   wireguard-ui:
@@ -40,18 +39,18 @@ EOF
 
 docker compose up -d
 
+echo -e "\n🌐 Nginx yapılandırması yapılıyor..."
 mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
 
-echo -e "\n🌐 Nginx yapılandırması yapılıyor..."
-cat > /etc/nginx/sites-available/wg-ui <<EOF
+cat <<EOF > /etc/nginx/sites-available/wg-ui
 server {
     listen 80;
     server_name vpn.local;
 
     location / {
         proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
     }
 }
 EOF

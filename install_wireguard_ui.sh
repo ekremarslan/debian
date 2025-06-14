@@ -8,13 +8,6 @@ if ! command -v docker >/dev/null 2>&1; then
     apt install -y docker.io
     systemctl enable docker
     systemctl start docker
-
-# docker compose (v2) eklentisi kurulumu
-if ! docker compose version >/dev/null 2>&1; then
-    echo -e "\n🔧 docker-compose-plugin kuruluyor..."
-    apt install -y docker-compose-plugin
-fi
-
 else
     echo -e "\n✅ Docker zaten kurulu."
 fi

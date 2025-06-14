@@ -52,6 +52,9 @@ services:
 EOF
 
 echo -e "\n🚀 [4/6] WireGuard Web Arayüzü (wg-easy) başlatılıyor..."
+
+echo -e "\n⬇️  [Ek] En güncel wg-easy görüntüsü çekiliyor (Node.js v18)..."
+docker pull weejewel/wg-easy:latest
 docker-compose up -d
 
 echo -e "\n🌐 [5/6] Nginx yapılandırması ekleniyor..."

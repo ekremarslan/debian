@@ -7,9 +7,8 @@ sed -i 's/^# *tr_TR.UTF-8 UTF-8/tr_TR.UTF-8 UTF-8/' /etc/locale.gen
 sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
 locale-gen
 update-locale LANG=tr_TR.UTF-8
-echo 'LANG=tr_TR.UTF-8' > /etc/default/locale
+echo -e 'LANG=tr_TR.UTF-8\nLC_ALL=tr_TR.UTF-8' > /etc/default/locale
 export LANG=tr_TR.UTF-8
-export LANGUAGE=tr_TR:en
 export LC_ALL=tr_TR.UTF-8
 
 

@@ -21,9 +21,10 @@ apt install -y sudo curl wget vim gnupg ufw fail2ban openssh-server nginx
 echo "[2/6] Güvenlik duvarı yapılandırılıyor (SSH port: $SSH_PORT)..."
 ufw allow "${SSH_PORT}/tcp"
 ufw allow "Nginx HTTP"
-# Varsayılan 22 numaralı SSH portunu kapat
-ufw delete allow 22/tcp 2>/dev/null || true
-ufw delete allow 22/tcp (v6) 2>/dev/null || true
+# 22 numaralı SSH portunu sil (varsa)
+ufw delete allow 22/tcp || true
+ufw delete allow OpenSSH || true
+ufw delete allow 22 || true
 ufw --force enable
 systemctl enable fail2ban
 
@@ -61,4 +62,4 @@ systemctl restart ssh
 echo "[6/6] Kurulum tamamlandı."
 echo "Sunucu IP adresleri:"
 hostname -I
-echo "✅ SSH portu: $SSH_PORT | 22 kapalı | Şifreli giriş yok | Yalnızca key ile giriş aktif."
+echo "✅ SSH portu: $SSH_PORT | 22 kapalı | Şifreli giriş kapalı | X11 kapalı | Sadece key ile erişim açık."

@@ -10,6 +10,13 @@ if [ -f "$SCRIPT_PATH" ]; then
     chmod +x "$SCRIPT_PATH"
 fi
 
+
+echo -e "\n🧱 [0/6] UFW güvenlik duvarı ayarlanıyor..."
+ufw allow 22/tcp     # SSH erişimi
+ufw allow 80/tcp     # Nginx HTTP erişimi
+ufw allow 51820/udp  # WireGuard UDP portu
+yes | ufw enable
+
 echo -e "\n🛠️ [1/6] Docker ve Gerekli Paketler Kuruluyor..."
 apt update -y
 apt install -y docker.io docker-compose nginx curl

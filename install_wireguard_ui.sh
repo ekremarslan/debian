@@ -1,10 +1,15 @@
 #!/bin/bash
 set -e
 
+echo -e "\n🚀 WireGuard UI kurulum başlatılıyor..."
+
+# Sistem güncellemesi ve temel araçlar
+apt update -y
+apt install -y curl gnupg2 lsb-release ca-certificates apt-transport-https software-properties-common
+
 # Docker kurulumu (eğer yoksa)
 if ! command -v docker >/dev/null 2>&1; then
-    echo -e "\n📦 Docker kurulumu yapılıyor..."
-    apt update -y
+    echo -e "\n📦 Docker kuruluyor..."
     apt install -y docker.io
     systemctl enable docker
     systemctl start docker
@@ -12,34 +17,47 @@ else
     echo -e "\n✅ Docker zaten kurulu."
 fi
 
-echo -e "\n📂 wireguard-ui kurulumu başlatılıyor..."
-mkdir -p /etc/wireguard
-echo "[Interface]" > /etc/wireguard/wg0.conf
-chmod 755 /etc/wireguard
-chmod 644 /etc/wireguard/wg0.conf
+# docker compose plugin (v2) kurulumu
+if ! docker compose version >/dev/null 2>&1; then
+    echo -e "\n🔧 docker-compose-plugin kuruluyor..."
+    apt install -y docker-compose-plugin
+fi
 
+# Nginx kurulumu (eğer yoksa)
+if ! command -v nginx >/dev/null 2>&1; then
+    echo -e "\n🌐 Nginx kuruluyor..."
+    apt install -y nginx
+    systemctl enable nginx
+    systemctl start nginx
+else
+    echo -e "\n✅ Nginx zaten kurulu."
+fi
+
+# wireguard-ui kurulumu
 mkdir -p /opt/wireguard-ui
 cd /opt/wireguard-ui
 
 cat <<EOF > docker-compose.yml
-version: '3'
+version: '3.8'
+
 services:
   wireguard-ui:
-    image: embarkstudios/wireguard-ui:latest
+    image: ngoduykhanh/wireguard-ui:latest
     container_name: wireguard-ui
     restart: unless-stopped
-    ports:
-      - "51822:5000"
-    volumes:
-      - /etc/wireguard:/etc/wireguard
     environment:
-      - WGUI_AUTO_GENERATE=true
-      - WGUI_ENDPOINT_ADDRESS=192.168.10.24:51820
+      - TZ=Europe/Istanbul
+      - WGUI_USERNAME=admin
+      - WGUI_PASSWORD=admin123
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - ./data:/etc/wireguard
 EOF
 
 docker compose up -d
 
-echo -e "\n🌐 Nginx yapılandırması yapılıyor..."
+# Nginx reverse proxy yapılandırması
 mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
 
 cat <<EOF > /etc/nginx/sites-available/wg-ui
@@ -58,7 +76,9 @@ EOF
 ln -sf /etc/nginx/sites-available/wg-ui /etc/nginx/sites-enabled/wg-ui
 nginx -t && systemctl reload nginx
 
+# Bilgilendirme
 echo -e "\n✅ Kurulum tamamlandı!"
-echo -e "🌍 Web Arayüz: http://vpn.local"
-echo -e "📌 /etc/hosts dosyanıza şu satırı ekleyin:"
+echo -e "🌍 Web arayüzü: http://vpn.local"
+echo -e "👤 Giriş: admin / admin123"
+echo -e "📌 Not: /etc/hosts dosyanıza aşağıdakini eklemeyi unutmayın:"
 echo -e "192.168.10.24    vpn.local"

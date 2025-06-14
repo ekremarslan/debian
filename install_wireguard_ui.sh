@@ -28,6 +28,8 @@ EOF
 
 docker-compose up -d
 
+mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+
 echo -e "\n🌐 Nginx yapılandırması yapılıyor..."
 cat > /etc/nginx/sites-available/wg-ui <<EOF
 server {

@@ -14,15 +14,23 @@ while [[ "$#" -gt 0 ]]; do
   shift
 done
 
-echo "[1/6] Sistem güncelleniyor ve gerekli paketler kuruluyor..."
+echo "[0/6] Repository ayarları düzeltiliyor..."
 
-# Repository ayarlarını düzelt
-cat > /etc/apt/sources.list << 'EOF'
+# CD-ROM satırlarını kaldır ve düzgün repository'leri ekle
+sed -i '/cdrom/d' /etc/apt/sources.list
+
+# Bookworm repository'lerini ekle (varsa tekrar eklenmemesi için kontrol)
+if ! grep -q "deb.debian.org/debian bookworm main" /etc/apt/sources.list; then
+  cat >> /etc/apt/sources.list << 'EOF'
+
+# Debian Bookworm Repositories
 deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
 deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
 deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
 EOF
+fi
 
+echo "[1/6] Sistem güncelleniyor ve gerekli paketler kuruluyor..."
 apt update && apt upgrade -y
 apt install -y sudo curl wget vim gnupg ufw fail2ban openssh-server nginx
 
@@ -82,11 +90,6 @@ sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' "$SSHD_CONFIG
 sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' "$SSHD_CONFIG"
 sed -i 's/^#*X11Forwarding.*/X11Forwarding no/' "$SSHD_CONFIG"
 
-# KexAlgorithms hatalarını önlemek için
-if ! grep -q "^KexAlgorithms" "$SSHD_CONFIG"; then
-  echo "KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group-exchange-sha256" >> "$SSHD_CONFIG"
-fi
-
 echo "[5/6] SSH servisi yeniden başlatılıyor..."
 systemctl restart ssh
 
@@ -97,7 +100,7 @@ systemctl start nginx
 echo ""
 echo "✅ Kurulum tamamlandı!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Sunucu IP adresleri: $(hostname -I)"
+echo "Sunucu IP: $(hostname -I)"
 echo "SSH portu: $SSH_PORT"
 echo "Güvenlik: Port 22 kapalı | Şifre girişi kapalı | Sadece SSH key erişimi"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

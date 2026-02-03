@@ -15,16 +15,27 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "[1/6] Sistem güncelleniyor ve gerekli paketler kuruluyor..."
+
+# Repository ayarlarını düzelt
+cat > /etc/apt/sources.list << 'EOF'
+deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
+EOF
+
 apt update && apt upgrade -y
 apt install -y sudo curl wget vim gnupg ufw fail2ban openssh-server nginx
 
 echo "[2/6] Güvenlik duvarı yapılandırılıyor (SSH port: $SSH_PORT)..."
 ufw allow "${SSH_PORT}/tcp"
-ufw allow "Nginx HTTP"
+ufw allow 80/tcp
+ufw allow 443/tcp
+
 # 22 numaralı SSH portunu sil (varsa)
-ufw delete allow 22/tcp || true
-ufw delete allow OpenSSH || true
-ufw delete allow 22 || true
+ufw delete allow 22/tcp 2>/dev/null || true
+ufw delete allow OpenSSH 2>/dev/null || true
+ufw delete allow 22 2>/dev/null || true
+
 ufw --force enable
 systemctl enable fail2ban
 
@@ -32,34 +43,61 @@ echo "[3/6] Public key indiriliyor ve tüm kullanıcılara uygulanıyor..."
 TEMP_KEY="/tmp/ekremarslan.pub"
 curl -Ls "$PUBKEY_URL" -o "$TEMP_KEY"
 
-for dir in /home/* /root; do
+for dir in /root /home/*; do
   [ -d "$dir" ] || continue
   USERNAME=$(basename "$dir")
   SSH_DIR="$dir/.ssh"
   AUTH_KEYS="$SSH_DIR/authorized_keys"
-
+  
   echo "→ $USERNAME kullanıcısına ekleniyor..."
   mkdir -p "$SSH_DIR"
   chmod 700 "$SSH_DIR"
   touch "$AUTH_KEYS"
   chmod 600 "$AUTH_KEYS"
-  grep -qxFf "$TEMP_KEY" "$AUTH_KEYS" || cat "$TEMP_KEY" >> "$AUTH_KEYS"
-  chown -R "$USERNAME:$USERNAME" "$SSH_DIR" 2>/dev/null || true
+  
+  grep -qxFf "$TEMP_KEY" "$AUTH_KEYS" 2>/dev/null || cat "$TEMP_KEY" >> "$AUTH_KEYS"
+  
+  if [ "$dir" = "/root" ]; then
+    chown -R root:root "$SSH_DIR"
+  else
+    chown -R "$USERNAME:$USERNAME" "$SSH_DIR" 2>/dev/null || true
+  fi
 done
 
 rm -f "$TEMP_KEY"
 
 echo "[4/6] SSH yapılandırması güvenli hale getiriliyor..."
-grep -q "^Port" /etc/ssh/sshd_config && sed -i "s/^Port .*/Port $SSH_PORT/" /etc/ssh/sshd_config || echo "Port $SSH_PORT" >> /etc/ssh/sshd_config
-sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-sed -i 's/^#*X11Forwarding.*/X11Forwarding no/' /etc/ssh/sshd_config
+SSHD_CONFIG="/etc/ssh/sshd_config"
+
+# Port ayarı
+if grep -q "^Port" "$SSHD_CONFIG"; then
+  sed -i "s/^Port .*/Port $SSH_PORT/" "$SSHD_CONFIG"
+else
+  echo "Port $SSH_PORT" >> "$SSHD_CONFIG"
+fi
+
+# Güvenlik ayarları
+sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' "$SSHD_CONFIG"
+sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' "$SSHD_CONFIG"
+sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' "$SSHD_CONFIG"
+sed -i 's/^#*X11Forwarding.*/X11Forwarding no/' "$SSHD_CONFIG"
+
+# KexAlgorithms hatalarını önlemek için
+if ! grep -q "^KexAlgorithms" "$SSHD_CONFIG"; then
+  echo "KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group-exchange-sha256" >> "$SSHD_CONFIG"
+fi
 
 echo "[5/6] SSH servisi yeniden başlatılıyor..."
 systemctl restart ssh
 
-echo "[6/6] Kurulum tamamlandı."
-echo "Sunucu IP adresleri:"
-hostname -I
-echo "✅ SSH portu: $SSH_PORT | 22 kapalı | Şifreli giriş kapalı | X11 kapalı | Sadece key ile erişim açık."
+echo "[6/6] Nginx yapılandırması kontrol ediliyor..."
+systemctl enable nginx
+systemctl start nginx
+
+echo ""
+echo "✅ Kurulum tamamlandı!"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Sunucu IP adresleri: $(hostname -I)"
+echo "SSH portu: $SSH_PORT"
+echo "Güvenlik: Port 22 kapalı | Şifre girişi kapalı | Sadece SSH key erişimi"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

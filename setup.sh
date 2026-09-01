@@ -14,18 +14,10 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-# Tüm çıktıyı hem ekrana hem log dosyasına yaz.
-# DİKKAT: 'exec > >(tee ...)' process substitution'ı, script 'curl | bash' ile
-# stdin'den beslendiğinde curl'ün pipe'ını miras alıp asılmaya yol açabiliyor.
-# Bu yüzden tee'yi arka planda kendi çıktısını yakalayan bir FIFO üzerinden,
-# stdin'den bağımsız kuruyoruz — hem 'curl|bash' hem dosyadan çalıştırma güvenli.
-LOG_FILE="/var/log/debian-setup-$(date +%Y%m%d-%H%M%S).log"
-LOG_FIFO="$(mktemp -u)"
-mkfifo "$LOG_FIFO"
-tee -a "$LOG_FILE" < "$LOG_FIFO" &
-LOG_TEE_PID=$!
-exec > "$LOG_FIFO" 2>&1
-rm -f "$LOG_FIFO"   # isim silinse de açık fd üzerinden akış sürer
+# NOT: Çıktı doğrudan terminale yazılır — böylece 'bash <(curl ...)', 'curl | bash'
+# ve dosyadan çalıştırma dahil her yöntemde script sorunsuz başlar.
+# Log dosyası istersen komutu tee ile sarmalaman yeterli (fd yönlendirmesine gerek yok):
+#   bash <(curl -sL URL) 2>&1 | tee /var/log/debian-setup.log
 
 # --- Varsayılan ayarlar ------------------------------------------------------
 SSH_PORT=2222
@@ -265,7 +257,6 @@ echo "Sunucu IP  : $(hostname -I | xargs)"
 echo "SSH portu  : $SSH_PORT"
 echo "Nginx      : $([ "$WITH_NGINX" -eq 1 ] && echo 'kuruldu' || echo 'atlandı (--with-nginx ile ekleyebilirsiniz)')"
 echo "Güvenlik   : Port 22 kapalı | Şifre girişi kapalı | Sadece SSH key | fail2ban aktif | oto-güncelleme açık"
-echo "Log        : $LOG_FILE"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "⚠️  ÇIKIŞ YAPMADAN ÖNCE: Yeni bir terminalden 'ssh -p $SSH_PORT kullanici@ip'"

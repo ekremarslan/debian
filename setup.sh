@@ -14,9 +14,18 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-# Tüm çıktıyı hem ekrana hem log dosyasına yaz
+# Tüm çıktıyı hem ekrana hem log dosyasına yaz.
+# DİKKAT: 'exec > >(tee ...)' process substitution'ı, script 'curl | bash' ile
+# stdin'den beslendiğinde curl'ün pipe'ını miras alıp asılmaya yol açabiliyor.
+# Bu yüzden tee'yi arka planda kendi çıktısını yakalayan bir FIFO üzerinden,
+# stdin'den bağımsız kuruyoruz — hem 'curl|bash' hem dosyadan çalıştırma güvenli.
 LOG_FILE="/var/log/debian-setup-$(date +%Y%m%d-%H%M%S).log"
-exec > >(tee -a "$LOG_FILE") 2>&1
+LOG_FIFO="$(mktemp -u)"
+mkfifo "$LOG_FIFO"
+tee -a "$LOG_FILE" < "$LOG_FIFO" &
+LOG_TEE_PID=$!
+exec > "$LOG_FIFO" 2>&1
+rm -f "$LOG_FIFO"   # isim silinse de açık fd üzerinden akış sürer
 
 # --- Varsayılan ayarlar ------------------------------------------------------
 SSH_PORT=2222
@@ -261,3 +270,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "⚠️  ÇIKIŞ YAPMADAN ÖNCE: Yeni bir terminalden 'ssh -p $SSH_PORT kullanici@ip'"
 echo "    ile bağlanabildiğinizi doğrulayın. Bu oturumu açık tutun!"
+
+# stdout/stderr'i kapat ve tee'nin log'a yazmayı bitirmesini bekle
+exec >&- 2>&-
+wait "$LOG_TEE_PID" 2>/dev/null || true

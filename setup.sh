@@ -2,11 +2,15 @@
 # =============================================================================
 # Debian Standardizasyon / Hardening Scripti
 # Bookworm (12) ve Trixie (13) uyumlu — "önce doğrula, sonra kapat" mantığı
+#
+# Kullanım:
+#   bash <(curl -sL URL) [--port 2222] [--with-nginx] [--pubkey-url URL]
+# Log istersen:
+#   bash <(curl -sL URL) 2>&1 | tee /var/log/debian-setup.log
 # =============================================================================
 
 # --- 0) Önyükleme: güvenli mod + root kontrolü -------------------------------
-# NOT: set -u arg parse'tan SONRA devreye girmeli ki ${2:-} vb. ile uğraşmayalım;
-#      burada -e ve pipefail'i açıyoruz, -u'yu arg parse sonrası ekliyoruz.
+# set -u arg parse'tan SONRA açılıyor.
 set -eo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -14,10 +18,9 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-# NOT: Çıktı doğrudan terminale yazılır — böylece 'bash <(curl ...)', 'curl | bash'
-# ve dosyadan çalıştırma dahil her yöntemde script sorunsuz başlar.
-# Log dosyası istersen komutu tee ile sarmalaman yeterli (fd yönlendirmesine gerek yok):
-#   bash <(curl -sL URL) 2>&1 | tee /var/log/debian-setup.log
+# 'su' (tiresiz) ile root olunduğunda Debian /usr/sbin ve /sbin'i PATH'e eklemez;
+# ufw, sshd, iptables vb. bulunamaz. PATH'i garanti altına alıyoruz.
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
 
 # --- Varsayılan ayarlar ------------------------------------------------------
 SSH_PORT=2222
@@ -28,11 +31,11 @@ PUBKEY_URL="https://raw.githubusercontent.com/ekremarslan/debian/refs/heads/main
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --port)
-      SSH_PORT="${2:-}"; shift 2 ;;
+      SSH_PORT="${2:-}"; shift 2 || shift ;;
     --with-nginx)
       WITH_NGINX=1; shift ;;
     --pubkey-url)
-      PUBKEY_URL="${2:-}"; shift 2 ;;
+      PUBKEY_URL="${2:-}"; shift 2 || shift ;;
     *)
       echo "Bilinmeyen parametre: $1" >&2; exit 1 ;;
   esac
@@ -66,13 +69,10 @@ echo "Tespit edilen dağıtım: ${PRETTY_NAME:-Debian} (codename: $CODENAME)"
 echo "[0/7] Repository ayarları düzeltiliyor..."
 # =============================================================================
 # Trixie ve sonrası deb822 formatı kullanır (/etc/apt/sources.list.d/debian.sources).
-# Bu dosya kuruluşta genelde doğru yapılandırılır; ona dokunmuyoruz.
-# Sadece klasik (legacy) sources.list kullanan sistemlerde cdrom'u temizleyip
-# ağ depolarını garanti altına alıyoruz.
+# O dosyaya dokunmuyoruz; sadece legacy sources.list'teki cdrom satırlarını temizliyoruz.
 if [ -f /etc/apt/sources.list.d/debian.sources ]; then
   echo "→ deb822 formatı algılandı (debian.sources). Depolar olduğu gibi bırakılıyor."
-  # Olası cdrom stanza'sını devre dışı bırak (varsa)
-  if grep -qi 'cdrom' /etc/apt/sources.list 2>/dev/null; then
+  if [ -f /etc/apt/sources.list ] && grep -qi 'cdrom' /etc/apt/sources.list; then
     sed -i '/cdrom/d' /etc/apt/sources.list
   fi
 else
@@ -95,25 +95,42 @@ echo "[1/7] Sistem güncelleniyor ve gerekli paketler kuruluyor..."
 # =============================================================================
 apt-get update
 apt-get upgrade -y
+# python3-systemd: fail2ban'in systemd backend'i için gerekli
+# (Debian 12'de rsyslog/auth.log olmadığından fail2ban journal'dan okumalı).
+# iproute2: 'ss' komutu için.
 apt-get install -y \
-  sudo curl wget vim gnupg ca-certificates \
-  ufw fail2ban openssh-server \
+  sudo curl wget vim gnupg ca-certificates iproute2 \
+  ufw fail2ban python3-systemd openssh-server \
   unattended-upgrades systemd-timesyncd
 
 if [ "$WITH_NGINX" -eq 1 ]; then
   apt-get install -y nginx
 fi
 
+# Kritik komutlar gerçekten erişilebilir mi?
+for cmd in ufw sshd ss ssh-keygen fail2ban-client; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "HATA: '$cmd' bulunamadı (PATH: $PATH). İşlem durduruldu." >&2
+    exit 1
+  fi
+done
+
 # =============================================================================
 echo "[2/7] Public key indiriliyor, DOĞRULANIYOR ve kullanıcılara uygulanıyor..."
 # =============================================================================
-# -f: HTTP hatasında (404 vb.) curl fail versin ki bozuk anahtar eklenmesin.
 TEMP_KEY="$(mktemp)"
 trap 'rm -f "$TEMP_KEY"' EXIT
 
+# -f: HTTP hatasında (404 vb.) curl fail versin ki bozuk anahtar eklenmesin.
 if ! curl -fsSL "$PUBKEY_URL" -o "$TEMP_KEY"; then
   echo "HATA: Public key indirilemedi: $PUBKEY_URL" >&2
   exit 1
+fi
+
+# Normalize: CRLF → LF, boş satırları at, dosya sonu newline garanti.
+sed -i 's/\r$//; /^[[:space:]]*$/d' "$TEMP_KEY"
+if [ -s "$TEMP_KEY" ] && [ -n "$(tail -c1 "$TEMP_KEY")" ]; then
+  echo >> "$TEMP_KEY"
 fi
 
 # İndirilen içerik gerçekten geçerli bir SSH public key mi?
@@ -130,61 +147,89 @@ for dir in /root /home/*; do
   SSH_DIR="$dir/.ssh"
   AUTH_KEYS="$SSH_DIR/authorized_keys"
 
+  # /home altında sistemde karşılığı olmayan klasörleri atla
+  if [ "$dir" != "/root" ] && ! id "$USERNAME" >/dev/null 2>&1; then
+    echo "→ $dir için kullanıcı yok, atlanıyor."
+    continue
+  fi
+
   echo "→ $USERNAME kullanıcısına ekleniyor..."
   mkdir -p "$SSH_DIR"
-  chmod 700 "$SSH_DIR"
   touch "$AUTH_KEYS"
+
+  # Önceki çalıştırmalardan kalmış olabilecek CRLF'leri temizle
+  sed -i 's/\r$//' "$AUTH_KEYS"
+  # Mevcut dosya newline ile bitmiyorsa ekle (anahtarlar aynı satıra yapışmasın)
+  if [ -s "$AUTH_KEYS" ] && [ -n "$(tail -c1 "$AUTH_KEYS")" ]; then
+    echo >> "$AUTH_KEYS"
+  fi
+
+  # Her anahtar satırını ayrı ayrı kontrol edip yoksa ekle
+  while IFS= read -r keyline; do
+    [ -n "$keyline" ] || continue
+    grep -qxF -- "$keyline" "$AUTH_KEYS" || printf '%s\n' "$keyline" >> "$AUTH_KEYS"
+  done < "$TEMP_KEY"
+
+  chmod 700 "$SSH_DIR"
   chmod 600 "$AUTH_KEYS"
-
-  grep -qxFf "$TEMP_KEY" "$AUTH_KEYS" 2>/dev/null || cat "$TEMP_KEY" >> "$AUTH_KEYS"
-
   if [ "$dir" = "/root" ]; then
     chown -R root:root "$SSH_DIR"
   else
-    chown -R "$USERNAME:$USERNAME" "$SSH_DIR" 2>/dev/null || true
+    USERGROUP="$(id -gn "$USERNAME")"
+    chown -R "$USERNAME:$USERGROUP" "$SSH_DIR"
   fi
 done
 
 # =============================================================================
 echo "[3/7] Güvenlik duvarı (UFW) yapılandırılıyor — port 22 HENÜZ kapatılmıyor..."
 # =============================================================================
+# 22'yi enable'dan ÖNCE geçici olarak açıyoruz; yeni port doğrulanamazsa
+# 22 üzerinden tekrar bağlanabilmek için.
+ufw allow 22/tcp
 ufw allow "${SSH_PORT}/tcp"
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
-# NOT: 22'yi burada kapatmıyoruz. Yeni portun dinlediğini teyit ETTİKTEN sonra kapatacağız.
 
 # =============================================================================
 echo "[4/7] SSH güvenli hale getiriliyor (drop-in config)..."
 # =============================================================================
-# Ana sshd_config'e sed atmak yerine drop-in kullanıyoruz. Sebep: cloud image'larda
-# /etc/ssh/sshd_config.d/50-cloud-init.conf gibi dosyalar ana gövdeden ÖNCE okunur
-# ve sshd çoğu direktif için İLK değeri kullanır; ana dosyadaki değişiklik geçersiz kalır.
+# Drop-in kullanıyoruz: cloud image'lardaki 50-cloud-init.conf gibi dosyalar ana
+# gövdeden ÖNCE okunur ve sshd çoğu direktif için İLK değeri kullanır.
 # 00- öneki ile bizim ayarlarımız en önce okunur.
 SSHD_DROPIN_DIR="/etc/ssh/sshd_config.d"
 mkdir -p "$SSHD_DROPIN_DIR"
+
+# Ana sshd_config drop-in klasörünü include ediyor mu? (Debian 12/13'te varsayılan evet)
+if ! grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config; then
+  echo "→ sshd_config'e Include satırı ekleniyor."
+  sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
+fi
+
 cat > "$SSHD_DROPIN_DIR/00-hardening.conf" << EOF
 # Bu dosya standardizasyon scripti tarafından üretildi. Elle düzenlemeyin.
 Port $SSH_PORT
 PasswordAuthentication no
+KbdInteractiveAuthentication no
 PermitRootLogin prohibit-password
 PubkeyAuthentication yes
 X11Forwarding no
-ChallengeResponseAuthentication no
 MaxAuthTries 3
 ClientAliveInterval 300
 ClientAliveCountMax 2
 EOF
 
-# ssh.socket (socket-activation) aktifse, 'Port' direktifi YOK SAYILIR; dinlenen portu
-# socket birimi belirler. Bunu önlemek için socket'i devre dışı bırakıp ssh.service'e geçiyoruz.
+# ssh.socket (socket-activation) aktifse 'Port' direktifi YOK SAYILIR.
 if systemctl is-enabled ssh.socket >/dev/null 2>&1 || systemctl is-active ssh.socket >/dev/null 2>&1; then
-  echo "→ ssh.socket tespit edildi; devre dışı bırakılıp ssh.service'e geçiliyor (Port direktifi geçerli olsun diye)."
+  echo "→ ssh.socket tespit edildi; devre dışı bırakılıp ssh.service'e geçiliyor."
   systemctl disable --now ssh.socket || true
-  systemctl enable ssh.service || true
 fi
+systemctl enable ssh.service >/dev/null 2>&1 || true
 
-# Config'i restart'tan ÖNCE test et — hatalıysa SSH'ı öldürme.
+# sshd -t, privilege separation dizini yoksa hata verir
+mkdir -p /run/sshd
+chmod 0755 /run/sshd
+
 echo "→ sshd yapılandırması test ediliyor (sshd -t)..."
 if ! sshd -t; then
   echo "HATA: sshd yapılandırması geçersiz. Restart YAPILMADI, mevcut oturum korundu." >&2
@@ -196,10 +241,17 @@ fi
 echo "[5/7] SSH servisi yeniden başlatılıyor ve yeni port doğrulanıyor..."
 # =============================================================================
 systemctl restart ssh
-sleep 2
 
-# Yeni portu gerçekten dinliyor muyuz?
-if ss -tlnH "sport = :$SSH_PORT" 2>/dev/null | grep -q ":$SSH_PORT"; then
+PORT_OK=0
+for _ in 1 2 3 4 5; do
+  sleep 1
+  if ss -tlnH "sport = :$SSH_PORT" 2>/dev/null | grep -q ":$SSH_PORT"; then
+    PORT_OK=1
+    break
+  fi
+done
+
+if [ "$PORT_OK" -eq 1 ]; then
   echo "→ Doğrulandı: sshd ${SSH_PORT} portunu dinliyor."
 else
   echo "HATA: sshd yeni portu ($SSH_PORT) dinlemiyor! Port 22 kapatılmayacak." >&2
@@ -209,19 +261,20 @@ else
 fi
 
 # --- Yalnızca doğrulama başarılıysa 22'yi kapat ------------------------------
-echo "→ Yeni port çalışıyor. Port 22 kapatılıyor..."
-ufw delete allow 22/tcp        2>/dev/null || true
-ufw delete allow OpenSSH       2>/dev/null || true
-ufw delete allow 22            2>/dev/null || true
+if [ "$SSH_PORT" -ne 22 ]; then
+  echo "→ Yeni port çalışıyor. Port 22 firewall'da kapatılıyor..."
+  ufw delete allow 22/tcp   >/dev/null 2>&1 || true
+  ufw delete allow OpenSSH  >/dev/null 2>&1 || true
+  ufw delete allow 22       >/dev/null 2>&1 || true
+fi
 
 # =============================================================================
 echo "[6/7] fail2ban etkinleştiriliyor (özel port jail'i ile)..."
 # =============================================================================
-# Not: Varsayılan sshd jail'i 22'yi izler. Özel port için jail.local şart.
 cat > /etc/fail2ban/jail.local << EOF
 [DEFAULT]
-backend = systemd
-bantime = 1h
+backend  = systemd
+bantime  = 1h
 findtime = 10m
 maxretry = 5
 
@@ -230,19 +283,24 @@ enabled = true
 port    = $SSH_PORT
 EOF
 
-systemctl enable --now fail2ban
+systemctl enable fail2ban >/dev/null 2>&1 || true
 systemctl restart fail2ban
+sleep 2
+if fail2ban-client status sshd >/dev/null 2>&1; then
+  echo "→ fail2ban sshd jail'i aktif."
+else
+  echo "UYARI: fail2ban sshd jail'i doğrulanamadı. 'journalctl -u fail2ban -n 50' ile kontrol edin." >&2
+fi
 
 # =============================================================================
 echo "[7/7] Otomatik güvenlik güncellemeleri ve zaman senkronu..."
 # =============================================================================
-# unattended-upgrades: güvenlik yamalarını otomatik uygula (standardizasyonun kalbi)
 cat > /etc/apt/apt.conf.d/20auto-upgrades << 'EOF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 EOF
-systemctl enable --now unattended-upgrades || true
-systemctl enable --now systemd-timesyncd  || true
+systemctl enable --now unattended-upgrades >/dev/null 2>&1 || true
+systemctl enable --now systemd-timesyncd  >/dev/null 2>&1 || true
 
 if [ "$WITH_NGINX" -eq 1 ]; then
   systemctl enable --now nginx
@@ -261,7 +319,3 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "⚠️  ÇIKIŞ YAPMADAN ÖNCE: Yeni bir terminalden 'ssh -p $SSH_PORT kullanici@ip'"
 echo "    ile bağlanabildiğinizi doğrulayın. Bu oturumu açık tutun!"
-
-# stdout/stderr'i kapat ve tee'nin log'a yazmayı bitirmesini bekle
-exec >&- 2>&-
-wait "$LOG_TEE_PID" 2>/dev/null || true
